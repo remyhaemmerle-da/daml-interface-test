@@ -18,9 +18,9 @@ interface Wallet where
     do
       proposalId <- exercise iouId IouTransfer with newOwner = getOwner this
       newIouId <- exercise proposalId IouAccept
-      -- authorization is leak toward some untrusted code
+      -- authorization or `from` is leaked through the following untrusted code
       credit_ this newIouId
-      -- We can circonvent this leaking issue by limited the authorization through an internal call
+      -- We can circonvent this leaking issue by limited the authorization through an internal choice
       -- * make the choice nonconsuming
       -- * comment the statement above and uncomment the one below to fix the issue.
       -- exercise self CreditInternal with iouId = newIouId
