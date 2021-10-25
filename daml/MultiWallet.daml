@@ -1,0 +1,100 @@
+module MultiWallet where
+
+import Note
+import Wallet
+
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Set (Set)
+import qualified DA.Set as Set
+
+import SimpleWallet
+import Daml.Script
+
+template MultiWallet
+  with
+    owner: Party
+    notes: Map Party NoteId
+    observers: Set Party
+  where
+    signatory owner
+    observer observers
+
+    implements Wallet where
+      let getOwner = owner
+
+      let credit_ = \addedNoteId -> do
+          addedNote <- fetch addedNoteId
+          newNote <- case Map.lookup addedNote.issuer notes of
+            None -> pure addedNoteId
+            Some noteId -> exercise noteId NoteMerge with otherNoteId = addedNoteId
+          multiWalletId <- create this with notes = Map.insert addedNote.issuer newNote notes
+          pure $ toWalletContractId multiWalletId
+
+      let withdraw_ = \issuer amount -> do
+          (split, rest) <- case Map.lookup issuer notes of
+            None -> error "Not fund available"
+            Some note -> exercise note NoteSplit with splitAmount = amount
+          newWallet <- create this with notes = Map.insert issuer rest notes
+          pure (toWalletContractId newWallet, split)
+
+    choice AddObserver: ContractId MultiWallet
+      with
+        newObserver: Party
+      controller owner
+      do
+        create this with observers = Set.insert newObserver observers
+
+    choice RemoveObserver: ContractId MultiWallet
+      with
+        deletedObserver: Party
+      controller owner
+      do
+        create this with observers = Set.delete deletedObserver observers
+
+
+test: Script ()
+test =
+  do
+
+    fed <- allocatePartyWithHint "Federal Reserve" (PartyIdHint "Federal Reserve")
+    snb <- allocatePartyWithHint "Swiss National Bank" (PartyIdHint "Swiss National Bank")
+
+    alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+    bob <- allocatePartyWithHint "Bob" (PartyIdHint "Bob")
+
+    noteA1 <- submitMulti [fed, alice] []
+      do
+        createCmd Note with issuer = fed, owner = alice, amount = 100
+
+    noteB1 <- submitMulti [fed, bob] []
+      do
+        createCmd Note with issuer = fed, owner = bob, amount = 100
+
+    noteB2 <- submitMulti [snb, bob] []
+      do
+        createCmd Note with issuer = snb, owner = bob, amount = 100
+
+    aliceWallet_ <- submit alice
+      do
+        createCmd SimpleWallet with owner = alice, noteId = noteA1
+    let aliceWallet = toWalletContractId aliceWallet_
+
+    bobWallet_ <- submit bob
+      do
+        createCmd MultiWallet with owner = bob, notes = Map.empty, observers = Set.fromList [alice]
+    let bobWallet = toWalletContractId bobWallet_
+
+    bobWallet <- submit bob
+      do
+        exerciseCmd bobWallet Credit with from = bob, noteId = noteB1
+
+    bobWallet <- submit bob
+      do
+        exerciseCmd bobWallet Credit with from = bob, noteId = noteB2
+
+    bobWallet <- submit alice
+      do
+        exerciseCmd aliceWallet Transfer with from = alice, to = bobWallet, issuer = fed, amount  = 5
+
+    pure ()

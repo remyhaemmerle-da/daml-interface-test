@@ -1,0 +1,61 @@
+module Note where
+
+import DA.Assert
+
+type NoteId = ContractId Note
+type NoteProposalId = ContractId NoteProposal
+
+template Note
+  with
+    issuer: Party
+    owner: Party
+    amount: Int
+  where
+    ensure (amount >= 0)
+    signatory issuer, owner
+
+    choice NoteMerge: NoteId
+      with otherNoteId: NoteId
+      controller owner
+      do
+        otherNote <- fetch otherNoteId
+        issuer === otherNote.issuer
+        owner === otherNote.owner
+        archive otherNoteId
+        create otherNote with amount = amount + otherNote.amount
+
+    choice NoteSplit: (NoteId, NoteId)
+      with
+        splitAmount: Int
+      controller owner
+      do
+        let restAmount = amount - splitAmount
+        assert (restAmount >= 0)
+        id1 <- create this with amount = splitAmount
+        id2 <- create this with amount = restAmount
+        pure (id1, id2)
+
+    choice NoteTransfer: NoteProposalId
+      with newOwner: Party
+      controller owner
+      do
+        create NoteProposal with owner = newOwner, issuer = issuer, amount = amount
+
+template NoteProposal
+  with
+    owner: Party
+    issuer: Party
+    amount: Int
+  where
+    signatory issuer
+    observer owner
+
+    choice NoteAccept: NoteId
+      controller owner
+      do
+        create Note with owner = owner, issuer = issuer, amount = amount
+
+
+
+
+

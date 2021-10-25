@@ -1,0 +1,43 @@
+module Wallet where
+
+import Note
+
+type WalletId = ContractId Wallet
+
+interface Wallet where
+  getOwner: Party
+
+  credit_: NoteId -> Update WalletId
+  withdraw_: Party -> Int -> Update (WalletId, NoteId)
+
+  choice Credit: WalletId
+    with
+      from: Party
+      noteId: NoteId
+    controller from
+    do
+      proposalId <- exercise noteId NoteTransfer with newOwner = getOwner this
+      newNoteId <- exercise proposalId NoteAccept
+      credit_ this newNoteId
+
+  choice Withdraw: (ContractId Wallet, NoteId)
+    with
+      issuer: Party
+      amount: Int
+    controller getOwner this
+    do
+      withdraw_ this issuer amount
+
+  nonconsuming choice Transfer: (ContractId Wallet, ContractId Wallet)
+    with
+      from: Party
+      to: ContractId Wallet
+      issuer: Party
+      amount: Int
+    controller from
+    do
+      (newWalltet, noteId) <- exercise self Withdraw with
+        issuer = issuer, amount = amount
+      updateToWallet <- exercise to Credit with
+        from = from, noteId = noteId
+      pure (newWalltet, updateToWallet)

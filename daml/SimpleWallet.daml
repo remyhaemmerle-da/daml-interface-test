@@ -1,0 +1,57 @@
+module SimpleWallet where
+
+import DA.Assert
+import Daml.Script
+
+import Note
+import Wallet
+
+template SimpleWallet
+  with
+    owner: Party
+    noteId: NoteId
+  where
+    signatory owner
+
+    implements Wallet where
+      let getOwner = owner
+
+      let credit_ = \addedNoteId -> do
+          note <- fetch noteId
+          addedNote <- fetch addedNoteId
+          note.issuer === addedNote.issuer
+          newNote <- exercise noteId NoteMerge with otherNoteId = addedNoteId
+          simpleWalletId <- create this with noteId = newNote
+          pure $ toWalletContractId simpleWalletId
+
+      let withdraw_ = \issuer amount -> do
+          note <- fetch noteId
+          note.issuer === issuer
+          (split, rest) <- exercise noteId NoteSplit with splitAmount = amount
+          simpleWalletId <- create this with noteId = rest
+          pure (toWalletContractId simpleWalletId, split)
+
+test: Script ()
+test =
+  do
+    fed <- allocatePartyWithHint "Federal Reserve" (PartyIdHint "Federal Reserve")
+    alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+
+    noteA1 <- submitMulti [fed, alice] []
+        do
+            createCmd Note with issuer = fed, owner = alice, amount = 100
+    noteA2 <- submitMulti [fed, alice] []
+        do
+            createCmd Note with issuer = fed, owner = alice, amount = 100
+
+    simpleWallet <- submit alice
+        do
+            createCmd SimpleWallet with owner = alice, noteId = noteA1
+    let aliceWallet = toWalletContractId simpleWallet
+
+    aliceWallet <- submit alice
+      do
+        exerciseCmd aliceWallet Credit with from = alice, noteId = noteA2
+
+
+    pure ()
