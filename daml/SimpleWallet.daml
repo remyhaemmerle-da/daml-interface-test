@@ -31,8 +31,8 @@ template SimpleWallet
           simpleWalletId <- create this with noteId = rest
           pure (toWalletContractId simpleWalletId, split)
 
-test: Script ()
-test =
+testSimple: Script ()
+testSimple =
   do
     fed <- allocatePartyWithHint "Federal Reserve" (PartyIdHint "Federal Reserve")
     alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")

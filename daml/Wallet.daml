@@ -18,9 +18,20 @@ interface Wallet where
     do
       proposalId <- exercise noteId NoteTransfer with newOwner = getOwner this
       newNoteId <- exercise proposalId NoteAccept
+      -- authorization is leak toward some untrusted code
       credit_ this newNoteId
+      -- We can circonvent this leaking issue by limited the authorization through an internal call
+      -- comment the statement above and uncomment the one below to fix the issue.
+      -- exercise self CreditInternal with noteId = newNoteId
 
-  choice Withdraw: (ContractId Wallet, NoteId)
+  choice CreditInternal: WalletId
+    with
+      noteId: NoteId
+    controller getOwner this
+    do
+      credit_ this noteId
+
+  choice Withdraw: (WalletId, NoteId)
     with
       issuer: Party
       amount: Int
@@ -28,10 +39,10 @@ interface Wallet where
     do
       withdraw_ this issuer amount
 
-  nonconsuming choice Transfer: (ContractId Wallet, ContractId Wallet)
+  nonconsuming choice Transfer: (WalletId, WalletId)
     with
       from: Party
-      to: ContractId Wallet
+      to: WalletId
       issuer: Party
       amount: Int
     controller from

@@ -53,8 +53,8 @@ template MultiWallet
         create this with observers = Set.delete deletedObserver observers
 
 
-test: Script ()
-test =
+testMulti: Script ()
+testMulti =
   do
 
     fed <- allocatePartyWithHint "Federal Reserve" (PartyIdHint "Federal Reserve")
