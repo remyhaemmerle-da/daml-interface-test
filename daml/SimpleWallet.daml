@@ -51,7 +51,7 @@ testSimple =
 
     aliceWallet <- submit alice
       do
-        exerciseCmd aliceWallet Credit with from = alice, iouId = iouA2
+        exerciseCmd aliceWallet SafeCredit with from = alice, iouId = iouA2
 
 
     pure ()

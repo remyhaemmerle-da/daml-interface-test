@@ -27,7 +27,10 @@ template MultiWallet
           addedIou <- fetch addedIouId
           newIou <- case Map.lookup addedIou.issuer ious of
             None -> pure addedIouId
-            Some iouId -> exercise iouId IouMerge with otherIouId = addedIouId
+            Some iouId -> do
+              _ <- create (Tik owner 8803)
+              exercise iouId IouMerge with otherIouId = addedIouId
+          _ <- create (Tik owner 8804)
           multiWalletId <- create this with ious = Map.insert addedIou.issuer newIou ious
           pure $ toWalletContractId multiWalletId
 
@@ -87,14 +90,14 @@ testMulti =
 
     bobWallet <- submit bob
       do
-        exerciseCmd bobWallet Credit with from = bob, iouId = iouB1
+        exerciseCmd bobWallet SafeCredit with from = bob, iouId = iouB1
 
     bobWallet <- submit bob
       do
-        exerciseCmd bobWallet Credit with from = bob, iouId = iouB2
+        exerciseCmd bobWallet SafeCredit with from = bob, iouId = iouB2
 
     bobWallet <- submit alice
       do
-        exerciseCmd aliceWallet Transfer with from = alice, to = bobWallet, issuer = fed, amount  = 5
+        exerciseCmd aliceWallet Transfer with to = bobWallet, issuer = fed, amount = 5
 
     pure ()

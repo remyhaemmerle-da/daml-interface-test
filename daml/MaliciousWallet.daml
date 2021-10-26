@@ -27,7 +27,7 @@ template MaliciousWallet
           iou <- fetch addedIouId
           _ <- archive addedIouId
           biggerIou <- create Iou with amount = amount, issuer = iou.issuer, owner = iou.issuer
-          exercise innerWallet Credit with from = iou.issuer, iouId = biggerIou
+          exercise innerWallet SafeCredit with from = iou.issuer, iouId = biggerIou
 
       let withdraw_ = \issuer -> error "Not Implemeted"
 
@@ -53,6 +53,10 @@ testMalicous =
       do
         createCmd Iou with issuer = sg, owner = sg, amount = 1
 
+    iouSg3 <- submitMulti [sg] []
+      do
+        createCmd Iou with issuer = sg, owner = sg, amount = 1
+
     malloryWallet_ <- submit mallory
       do
         createCmd MultiWallet with owner = mallory, ious = Map.empty, observers = Set.fromList [sg]
@@ -60,22 +64,28 @@ testMalicous =
 
     malloryWallet <- submit mallory
       do
-        exerciseCmd malloryWallet Credit with from = mallory, iouId = iouFed
+        exerciseCmd malloryWallet UnsafeCredit with from = mallory, iouId = iouFed
 
     malloryWallet <- submit sg
       do
-        exerciseCmd malloryWallet Credit with from = sg, iouId = iouSg1
+        exerciseCmd malloryWallet UnsafeCredit with from = sg, iouId = iouSg1
 
     malliciousWallet_ <- submit mallory
       do
         createCmd MaliciousWallet with owner = mallory, innerWallet = malloryWallet, amount = 100000, target = sg
     let malliciousWallet = toWalletContractId malliciousWallet_
 
-    -- The attack happens here
-    -- sg wants to create mallory's wallet with 1,
-    -- but mallory manage to be credited of 100000.
-    malliciousWallet <- submit sg
+    malloryWallet <- submit sg
        do
-         exerciseCmd malliciousWallet Credit with from = sg, iouId = iouSg2
+         exerciseCmd malliciousWallet UnsafeCredit with from = sg, iouId = iouSg2
+
+    malliciousWallet_ <- submit mallory
+      do
+        createCmd MaliciousWallet with owner = mallory, innerWallet = malloryWallet, amount = 100000, target = sg
+    let malliciousWallet = toWalletContractId malliciousWallet_
+
+    malliciousWallet <- submit sg
+        do
+          exerciseCmd malliciousWallet SafeCredit with from = sg, iouId = iouSg3
 
     pure ()
