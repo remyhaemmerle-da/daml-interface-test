@@ -1,0 +1,66 @@
+module Test where
+
+import Iou
+import Wallet
+import SimpleWallet
+import MultiWallet
+
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Set (Set)
+import qualified DA.Set as Set
+
+
+
+run = scenario do
+
+    fed <- getParty "Federal Reserve"
+    snb <- getParty "Swiss National Bank"
+
+    alice <- getParty "Alice"
+    bob <-getParty "Bob"
+
+    proposal <- submit fed
+      do
+        create IouProposal with issuer = fed, owner = alice, amount = 100
+    iouA1 <- submit alice
+      do
+        exercise proposal IouAccept
+
+    proposal <- submit fed
+      do
+        create IouProposal with issuer = fed, owner = bob, amount = 100
+    iouB1 <- submit bob
+      do
+        exercise proposal IouAccept
+
+    proposal <- submit snb
+      do
+        create IouProposal with issuer = snb, owner = bob, amount = 100
+    iouB2 <- submit bob
+      do
+        exercise proposal IouAccept
+
+    aliceWallet_ <- submit alice
+      do
+        create SimpleWallet with owner = alice, iouId = iouA1
+    let aliceWallet = toWalletContractId aliceWallet_
+
+    bobWallet_ <- submit bob
+      do
+        create MultiWallet with owner = bob, ious = Map.empty, observers = Set.fromList [alice]
+    let bobWallet = toWalletContractId bobWallet_
+
+    bobWallet <- submit bob
+      do
+        exercise bobWallet SafeCredit with from = bob, iouId = iouB1
+
+    bobWallet <- submit bob
+      do
+        exercise bobWallet SafeCredit with from = bob, iouId = iouB2
+
+    bobWallet <- submit alice
+      do
+        exercise aliceWallet Transfer with to = bobWallet, issuer = fed, amount = 5
+
+    pure ()
