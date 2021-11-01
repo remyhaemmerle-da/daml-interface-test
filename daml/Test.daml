@@ -12,6 +12,7 @@ import qualified DA.Set as Set
 
 
 
+run : Scenario ()
 run = scenario do
 
     fed <- getParty "Federal Reserve"

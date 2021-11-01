@@ -23,7 +23,6 @@ template Bridge with
       do
         wallet <- fetch walletId
         _ <- exercise walletId Archive_
-        _ <- create (Tik owner 1000)
         credit_ wallet iouId
 
 

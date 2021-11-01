@@ -1,0 +1,173 @@
+module Asset where
+
+import DA.Assert
+import Daml.Script
+
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Set (Set)
+import qualified DA.Set as Set
+
+import DA.Experimental.Interface(toTypeRep)
+
+
+type AssetId = ContractId Asset
+
+interface Asset where
+  assetGetOwner: Party
+  assetTransfer_: Party -> Update (ContractId AssetProposal)
+
+  choice AssetTransfer: ContractId AssetProposal
+    with
+      newOwner: Party
+    controller assetGetOwner this
+    do
+      assetTransfer_ this newOwner
+
+interface AssetProposal where
+  assetProposalGetOwner: Party
+  assetProposalProposee: Party
+
+  assetProposalAccept_: Update AssetId
+
+  choice AssetAccept: AssetId
+    controller assetProposalProposee this
+    do
+      assetProposalAccept_ this
+
+  nonconsuming choice AssetControledAccept: AssetId
+    with
+      checker: ContractId AssetChecker
+    controller assetProposalProposee this
+    do
+      _ <- exercise checker (AssetCheckerCheckProposal self)
+      exercise self AssetAccept
+
+template LegitimateAsset with
+    issuer: Party
+    owner: Party
+    amount: Int
+  where
+    signatory owner, issuer
+    implements Asset where
+      let assetGetOwner = owner
+      let assetTransfer_ = \proposee -> do
+            proposal <- create LegitimateAssetProposal with
+              asset = this
+              proposee = proposee
+            pure $ toAssetProposalContractId proposal
+
+template LegitimateAssetProposal with
+    proposee: Party
+    asset: LegitimateAsset
+  where
+    signatory asset.owner, asset.issuer
+    observer proposee
+    implements AssetProposal where
+      let assetProposalGetOwner = asset.owner
+      let assetProposalProposee = proposee
+      let assetProposalAccept_ = do
+            asset <- create asset with owner = proposee
+            pure $ toAssetContractId asset
+
+template MaliciousAssetProposal with
+    attacker: Party
+    victim: Party
+    target: AssetId
+  where
+    signatory attacker
+    observer victim
+    implements AssetProposal where
+      let assetProposalGetOwner = attacker
+      let assetProposalProposee = victim
+      let assetProposalAccept_ = do
+            stolenProposal <- exercise target AssetTransfer with newOwner = attacker
+            exercise stolenProposal AssetAccept
+
+interface AssetChecker where
+  assetCheckerOwner: Party
+  assetCheckerCheckProposal_: ContractId AssetProposal -> Update ()
+
+  nonconsuming choice AssetCheckerCheckProposal: ()
+    with
+      asset: ContractId AssetProposal
+    controller assetCheckerOwner this
+    do
+      assetCheckerCheckProposal_ this asset
+
+template LegitimateAssetChecker
+  with
+    owner: Party
+  where
+    signatory owner
+    let legitimateProposalTypes = Set.fromList [
+            toTypeRep $ LegitimateAssetProposal owner $ LegitimateAsset owner owner 0
+          ]
+    implements AssetChecker where
+      let assetCheckerOwner = owner
+      let assetCheckerCheckProposal_ = \proposalId -> do
+            proposal <- fetch proposalId
+            _ <- assert (Set.member (toTypeRep proposal) legitimateProposalTypes)
+            pure ()
+
+
+
+testMulti: Script ()
+testMulti =
+  do
+
+    bank <- allocatePartyWithHint "Bank" (PartyIdHint "Bank")
+
+    alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+    bob <- allocatePartyWithHint "Bob" (PartyIdHint "Bob")
+
+    -- Normal workflow
+
+    asset1 <- submitMulti [bank, alice] [] do
+      createCmd (LegitimateAsset bank alice 10)
+    asset1  <- pure $ toAssetContractId asset1
+
+    proposal <- submit alice do
+       exerciseCmd asset1 (AssetTransfer bob)
+    asset1 <- submit bob do
+       exerciseCmd proposal AssetAccept
+
+    -- Attack
+
+    -- mallory <- allocatePartyWithHint "Mallory" (PartyIdHint "Mallory")
+
+    -- asset2 <- submitMulti [bank, alice] [] do
+    --   createCmd (LegitimateAsset bank alice 10)
+    -- asset2 <- pure $ toAssetContractId asset2
+
+    -- proposal <- submit mallory do
+    --   createCmd (MaliciousAssetProposal mallory alice asset2)
+    -- proposal <- pure $ toAssetProposalContractId proposal
+    -- _ <- submit alice do
+    --  exerciseCmd proposal AssetAccept
+
+    -- Safer Workflow
+
+    -- checker <- submit bob do
+    --   createCmd (LegitimateAssetChecker bob)
+    -- checker <- pure $ toAssetCheckerContractId checker
+
+    -- asset3 <- submitMulti [bank, alice] [] do
+    --   createCmd (LegitimateAsset bank alice 10)
+    -- asset3 <- pure $ toAssetContractId asset3
+
+    -- proposal <- submit alice do
+    --   exerciseCmd asset3 (AssetTransfer bob)
+    -- proposal <- pure $ toAssetProposalContractId proposal
+
+    -- asset3 <- submit bob do
+    --   exerciseCmd proposal (AssetControledAccept checker)
+
+    -- proposal <- submit mallory do
+    --   createCmd (MaliciousAssetProposal mallory bob asset1)
+    -- proposal <- pure $ toAssetProposalContractId proposal
+
+    -- _ <- submit bob do
+    --   exerciseCmd proposal (AssetControledAccept $ toAssetCheckerContractId checker)
+
+    pure ()

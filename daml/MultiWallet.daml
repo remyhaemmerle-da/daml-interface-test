@@ -27,10 +27,7 @@ template MultiWallet
           addedIou <- fetch addedIouId
           newIou <- case Map.lookup addedIou.issuer ious of
             None -> pure addedIouId
-            Some iouId -> do
-              _ <- create (Tik owner 8803)
-              exercise iouId IouMerge with otherIouId = addedIouId
-          _ <- create (Tik owner 8804)
+            Some iouId -> do exercise iouId IouMerge with otherIouId = addedIouId
           multiWalletId <- create this with ious = Map.insert addedIou.issuer newIou ious
           pure $ toWalletContractId multiWalletId
 
@@ -41,19 +38,19 @@ template MultiWallet
           newWallet <- create this with ious = Map.insert issuer rest ious
           pure (toWalletContractId newWallet, split)
 
-    choice AddObserver: ContractId MultiWallet
-      with
-        newObserver: Party
-      controller owner
-      do
-        create this with observers = Set.insert newObserver observers
+    -- choice AddObserver: ContractId MultiWallet
+    --   with
+    --     newObserver: Party
+    --   controller owner
+    --   do
+    --     create this with observers = Set.insert newObserver observers
 
-    choice RemoveObserver: ContractId MultiWallet
-      with
-        deletedObserver: Party
-      controller owner
-      do
-        create this with observers = Set.delete deletedObserver observers
+    -- choice RemoveObserver: ContractId MultiWallet
+    --   with
+    --     deletedObserver: Party
+    --   controller owner
+    --   do
+    --     create this with observers = Set.delete deletedObserver observers
 
 
 testMulti: Script ()
@@ -78,26 +75,26 @@ testMulti =
       do
         createCmd Iou with issuer = snb, owner = bob, amount = 100
 
-    aliceWallet_ <- submit alice
-      do
-        createCmd SimpleWallet with owner = alice, iouId = iouA1
-    let aliceWallet = toWalletContractId aliceWallet_
+    -- aliceWallet_ <- submit alice
+    --   do
+    --     createCmd SimpleWallet with owner = alice, iouId = iouA1
+    -- let aliceWallet = toWalletContractId aliceWallet_
 
-    bobWallet_ <- submit bob
-      do
-        createCmd MultiWallet with owner = bob, ious = Map.empty, observers = Set.fromList [alice]
-    let bobWallet = toWalletContractId bobWallet_
+    -- bobWallet_ <- submit bob
+    --   do
+    --     createCmd MultiWallet with owner = bob, ious = Map.empty, observers = Set.fromList [alice]
+    -- let bobWallet = toWalletContractId bobWallet_
 
-    bobWallet <- submit bob
-      do
-        exerciseCmd bobWallet SafeCredit with from = bob, iouId = iouB1
+    -- bobWallet <- submit bob
+    --   do
+    --     exerciseCmd bobWallet SafeCredit with from = bob, iouId = iouB1
 
-    bobWallet <- submit bob
-      do
-        exerciseCmd bobWallet SafeCredit with from = bob, iouId = iouB2
+    -- bobWallet <- submit bob
+    --   do
+    --     exerciseCmd bobWallet SafeCredit with from = bob, iouId = iouB2
 
-    bobWallet <- submit alice
-      do
-        exerciseCmd aliceWallet Transfer with to = bobWallet, issuer = fed, amount = 5
+    -- bobWallet <- submit alice
+    --   do
+    --     exerciseCmd aliceWallet Transfer with to = bobWallet, issuer = fed, amount = 5
 
     pure ()
